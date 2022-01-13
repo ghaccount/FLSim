@@ -19,6 +19,7 @@ from flsim.channels.communication_stats import (
     ChannelDirection,
 )
 from flsim.clients.base_client import ClientConfig
+from flsim.clients.sarah_client import SarahClientConfig
 from flsim.common.logger import Logger
 from flsim.common.timeline import Timeline
 from flsim.common.timeout_simulator import (
@@ -29,6 +30,7 @@ from flsim.data.data_provider import IFLDataProvider
 from flsim.interfaces.metrics_reporter import IFLMetricsReporter, Metric, TrainingStage
 from flsim.interfaces.model import IFLModel
 from flsim.utils.config_utils import init_self_cfg
+from flsim.utils.config_utils import is_target
 from flsim.utils.cuda import CudaTransferMinimizer
 from hydra.utils import instantiate
 from omegaconf import MISSING
@@ -72,6 +74,8 @@ class FLTrainer(abc.ABC):
         self.num_total_users: int = -1
         # Initialize tracker for measuring communication between the clients and
         # the server if communication metrics are enabled
+        self.clients = {}
+        self.eval_clients = {}
 
     @classmethod
     def _set_defaults_in_cfg(cls, cfg):
@@ -110,7 +114,7 @@ class FLTrainer(abc.ABC):
         self,
         model: IFLModel,
         timeline: Timeline,
-        eval_iter: Iterable[Any],
+        data_provider,
         metric_reporter: IFLMetricsReporter,
         best_metric,
         best_model_state,
@@ -120,10 +124,37 @@ class FLTrainer(abc.ABC):
             return best_metric, best_model_state
         if not timeline.tick(self.cfg.eval_epoch_frequency):
             return best_metric, best_model_state
+
+        if self.cfg.personalized:
+            # personalized eval on train users
+            self._evaluate_personalized_train_users(
+                timeline=timeline,
+                data_provider=data_provider,
+                global_model=model,
+                metric_reporter=metric_reporter,
+            )
+
+            # personalized eval on eval users
+            self._evaluate_personalized_eval_users(
+                timeline=timeline,
+                data_provider=data_provider,
+                global_model=model,
+                metric_reporter=metric_reporter,
+            )
+
+        # evaluate global model on train users
+        eval_metric_train, eval_metric_better_than_prev = self._evaluate_train(
+            timeline=timeline,
+            data_provider=data_provider,
+            global_model=model,
+            metric_reporter=metric_reporter,
+        )
+
+        # evaluate global model on eval users
         eval_metric, eval_metric_better_than_prev = self._evaluate(
             timeline=timeline,
-            data_iter=eval_iter,
-            model=model,
+            data_provider=data_provider,
+            global_model=model,
             metric_reporter=metric_reporter,
         )
 
@@ -131,10 +162,6 @@ class FLTrainer(abc.ABC):
         # 2) if self.always_keep_trained_model is set as true, ignore the metrics and
         #    keep the trained model for each epoch
         if self.cfg.always_keep_trained_model or eval_metric_better_than_prev:
-            # last_best_epoch = epoch
-            self.logger.info(
-                f"Found a better model!, current_eval_metric:{eval_metric}"
-            )
             best_metric = eval_metric
             model_state = model.fl_get_module().state_dict()
             best_model_state = model_state
@@ -198,31 +225,110 @@ class FLTrainer(abc.ABC):
             )
             self.channel.stats_collector.reset_channel_stats()
 
+    def _evaluate_train(
+        self,
+        timeline: Timeline,
+        data_provider,
+        global_model: IFLModel,  # a global model
+        metric_reporter: IFLMetricsReporter,
+    ) -> Tuple[Any, bool]:
+        """
+        Eval of global model on already seen users (trained) users
+        """
+        print(f"{timeline}: \t Evaluate global model on validation data of train users")
+
+        for client in self.clients.values():
+            client.eval(
+                model=global_model, metric_reporter=metric_reporter, fine_tune=False
+            )
+
+        metrics, found_best_model = metric_reporter.report_metrics(
+            model=global_model,
+            reset=True,
+            stage=TrainingStage.EVAL_TRAIN,
+            timeline=timeline,
+            print_to_channels=True,
+        )
+        return metrics, found_best_model
+
+    def _evaluate_personalized_eval_users(
+        self,
+        timeline: Timeline,
+        data_provider,
+        global_model: IFLModel,  # a global model
+        metric_reporter: IFLMetricsReporter,
+    ) -> Tuple[Any, bool]:
+        # Finetunes global model for each eval user on their train data
+        # and then evaluates performance on local eval data
+        print(
+            f"{timeline}: \t Evaluate global model w/ finetune on validation data of eval users"
+        )
+
+        for eval_client in self.eval_clients.values():
+            eval_client.eval(
+                model=global_model, metric_reporter=metric_reporter, fine_tune=True
+            )
+
+        metrics, found_best_model = metric_reporter.report_metrics(
+            model=global_model,
+            reset=True,
+            stage=TrainingStage.PERSONALIZED_EVAL_EVAL,
+            timeline=timeline,
+            print_to_channels=True,
+        )
+        return metrics, found_best_model
+
+    def _evaluate_personalized_train_users(
+        self,
+        timeline: Timeline,
+        data_provider,
+        global_model: IFLModel,
+        metric_reporter: IFLMetricsReporter,
+    ) -> Tuple[Any, bool]:
+        print(
+            f"{timeline}: \t Evaluates global model on validation data of train users"
+        )
+        for train_client in self.clients.values():
+            train_client.eval(
+                model=global_model, metric_reporter=metric_reporter, fine_tune=True
+            )
+
+        metrics, found_best_model = metric_reporter.report_metrics(
+            model=global_model,
+            reset=True,
+            stage=TrainingStage.PERSONALIZED_EVAL_TRAIN,
+            timeline=timeline,
+            print_to_channels=True,
+        )
+
+        return metrics, found_best_model
+
     def _evaluate(
         self,
         timeline: Timeline,
-        data_iter: Iterable[Any],
-        model: IFLModel,
+        data_provider: IFLDataProvider,
+        global_model: IFLModel,
         metric_reporter: IFLMetricsReporter,
     ) -> Tuple[Any, bool]:
+        """
+        Evaluate global model on eval users
+        """
         with torch.no_grad():
-            self._cuda_state_manager.before_train_or_eval(model)
-            model.fl_get_module().eval()
-            print(f"Running {timeline} for {TrainingStage.EVAL.name.title()}")
+            global_model.fl_get_module().eval()
+            print(f"{timeline}: \t Evaluates global model on all data of eval users")
 
-            for _, batch in enumerate(data_iter):
-                batch_metrics = model.get_eval_metrics(batch)
+            for _, batch in enumerate(data_provider.eval_data()):
+                batch_metrics = global_model.get_eval_metrics(batch)
                 metric_reporter.add_batch_metrics(batch_metrics)
 
             metrics, found_best_model = metric_reporter.report_metrics(
-                model=model,
+                model=global_model,
                 reset=True,
                 stage=TrainingStage.EVAL,
                 timeline=timeline,
                 epoch=timeline.global_round_num(),  # for legacy
                 print_to_channels=True,
             )
-            self._cuda_state_manager.after_train_or_eval(model)
             return metrics, found_best_model
 
     def _test(
@@ -258,7 +364,7 @@ class FLTrainerConfig:
     _target_: str = MISSING
     _recursive_: bool = False
     # Training epochs
-    epochs: float = 10.0
+    epochs: float = 1000.0
     # Whether to do evaluation and model selection based on it.
     do_eval: bool = True
     # don't use metric reporter to choose: always keep trained model
@@ -278,3 +384,4 @@ class FLTrainerConfig:
     client: ClientConfig = ClientConfig()
     # config for the channels
     channel: FLChannelConfig = FLChannelConfig()
+    personalized: bool = False

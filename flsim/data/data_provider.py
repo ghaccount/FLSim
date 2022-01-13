@@ -45,6 +45,10 @@ class IFLUserData(IFLData):
         3. Providing an iterator over all the user batches
     """
 
+    @abstractmethod
+    def eval_data(self) -> Iterable[Any]:
+        pass
+
 
 class IFLDataProvider(ABC):
     """

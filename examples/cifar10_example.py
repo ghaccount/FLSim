@@ -6,12 +6,10 @@
 # LICENSE file in the root directory of this source tree.
 
 """In this tutorial, we will train an image classifier with FLSim to simulate federated learning training environment.
-
 With this tutorial, you will learn the following key components of FLSim:
 1. Data loading
 2. Model construction
 3. Trainer construction
-
   Typical usage example:
     python3 cifar10_example.py --config-file configs/cifar10_config.json
 """
@@ -32,7 +30,6 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 from torchvision import transforms
 from torchvision.datasets.cifar import CIFAR10
-
 
 IMAGE_SIZE = 32
 
@@ -94,6 +91,7 @@ def main(
         data_iter=data_provider.test_data(),
         metric_reporter=MetricsReporter([Channel.STDOUT]),
     )
+    return final_model, eval_score
 
 
 @hydra.main(config_path=None, config_name="cifar10_tutorial")

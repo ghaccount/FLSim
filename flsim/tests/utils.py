@@ -70,6 +70,10 @@ class DummyUserData(IFLUserData):
     def num_examples(self):
         return self._num_examples
 
+    def eval_data(self):
+        for _, batch in self.data:
+            yield self.model.fl_create_training_batch(batch=batch)
+
 
 class Quadratic1D(nn.Module):
     """

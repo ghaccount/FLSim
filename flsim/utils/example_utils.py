@@ -10,6 +10,7 @@
 import random
 from typing import Any, Tuple, Iterator, List, Generator, Dict, Iterable, Optional
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from flsim.data.data_provider import IFLDataProvider, IFLUserData
@@ -77,36 +78,54 @@ class DataLoader(IFLDataLoader):
     ) -> Generator[Dict[str, Generator], None, None]:
         # pyre-fixme[16]: `VisionDataset` has no attribute `__iter__`.
         data_rows: List[Dict[str, Any]] = [self.collate_fn(batch) for batch in dataset]
-        for _, (_, user_data) in enumerate(self.sharder.shard_rows(data_rows)):
-            batch = {}
-            keys = user_data[0].keys()
-            for key in keys:
-                attribute = {
-                    key: batchify(
-                        [row[key] for row in user_data],
-                        self.batch_size,
-                        drop_last,
-                    )
-                }
-                batch = {**batch, **attribute}
-            yield batch
+        for index, (_, user_data) in enumerate(self.sharder.shard_rows(data_rows)):
+            if index % world_size == rank and len(user_data) > 0:
+                batch = {}
+                keys = user_data[0].keys()
+                for key in keys:
+                    attribute = {
+                        key: batchify(
+                            [row[key] for row in user_data],
+                            self.batch_size,
+                            drop_last,
+                        )
+                    }
+                    batch = {**batch, **attribute}
+                yield batch
 
 
 class UserData(IFLUserData):
-    def __init__(self, user_data: Dict[str, Generator]):
+    def __init__(self, user_data: Dict[str, Generator], eval_split):
         self._user_batches = []
+        self._eval_batches = []
         self._num_batches = 0
         self._num_examples = 0
-        for features, labels in zip(user_data["features"], user_data["labels"]):
-            self._num_batches += 1
-            self._num_examples += UserData.get_num_examples(labels)
-            self._user_batches.append(UserData.fl_training_batch(features, labels))
+        self._eval_split = eval_split
+
+        self.num_eval_batches = 0
+        self.num_eval_examples = 0
+        user_features = list(user_data["features"])
+        user_labels = list(user_data["labels"])
+        total = sum(len(batch) for batch in user_labels)
+        for features, labels in zip(user_features, user_labels):
+            if self.num_eval_examples < int(total * self._eval_split):
+                self.num_eval_batches += 1
+                self.num_eval_examples += UserData.get_num_examples(labels)
+                self._eval_batches.append(UserData.fl_training_batch(features, labels))
+            else:
+                self._num_batches += 1
+                self._num_examples += UserData.get_num_examples(labels)
+                self._user_batches.append(UserData.fl_training_batch(features, labels))
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """
         Iterator to return a user batch data
         """
         for batch in self._user_batches:
+            yield batch
+
+    def eval_data(self):
+        for batch in self._eval_batches:
             yield batch
 
     def num_examples(self) -> int:
@@ -175,11 +194,24 @@ class LEAFDataLoader(IFLDataLoader):
 
 
 class DataProvider(IFLDataProvider):
-    def __init__(self, data_loader):
+    def __init__(self, data_loader, eval_split=0.1):
         self.data_loader = data_loader
-        self.train_users = self._create_fl_users(data_loader.fl_train_set())
-        self.eval_users = self._create_fl_users(data_loader.fl_eval_set())
-        self.test_users = self._create_fl_users(data_loader.fl_test_set())
+        self.train_users = self._create_fl_users(data_loader.fl_train_set(), eval_split)
+        self.eval_users = self._create_fl_users(data_loader.fl_eval_set(), eval_split)
+        self.test_users = self._create_fl_users(data_loader.fl_test_set(), eval_split)
+        self.stats("Train Clients\n ", self.train_users.values())
+        self.stats("Eval Client\n ", self.eval_users.values())
+
+    def stats(self, prefix, clients):
+        train_examples = [u.num_examples() for u in clients]
+        eval_examples = [u.num_eval_examples for u in clients]
+        print(
+            prefix
+            + f"Train Examples: {np.mean(train_examples), np.std(train_examples)}"
+        )
+        print(
+            prefix + f"Eval Examples: {np.mean(eval_examples), np.std(eval_examples)}"
+        )
 
     def user_ids(self) -> List[int]:
         return list(self.train_users.keys())
@@ -209,9 +241,11 @@ class DataProvider(IFLDataProvider):
             for batch in user_data:
                 yield batch
 
-    def _create_fl_users(self, iterator: Iterator) -> Dict[int, IFLUserData]:
+    def _create_fl_users(
+        self, iterator: Iterator, eval_split
+    ) -> Dict[int, IFLUserData]:
         return {
-            user_index: UserData(user_data)
+            user_index: UserData(user_data, eval_split)
             for user_index, user_data in tqdm(
                 enumerate(iterator), desc="Creating FL User", unit="user"
             )
@@ -405,45 +439,91 @@ class MetricsReporter(FLMetricsReporter):
         return {self.ACCURACY: accuracy}
 
 
-class LEAFDataProvider(IFLDataProvider):
-    def __init__(self, data_loader):
-        self.data_loader = data_loader
-        self.train_users = self._create_fl_users(data_loader.fl_train_set())
-        self.eval_users = self._create_fl_users(data_loader.fl_eval_set())
-        self.test_users = self._create_fl_users(data_loader.fl_test_set())
+# class LEAFDataProvider(IFLDataProvider):
+#     def __init__(self, data_loader, eval_split=0.1):
+#         self.data_loader = data_loader
+#         self.train_users = self._create_fl_users(data_loader.fl_train_set(), eval_split)
+#         self.eval_users = self._create_fl_users(data_loader.fl_eval_set(), eval_split)
+#         self.test_users = self._create_fl_users(data_loader.fl_test_set(), eval_split)
 
-    def user_ids(self) -> List[int]:
-        return list(self.train_users.keys())
+#         train_eval_ex = [u.num_eval_examples for u in self.train_users.values()]
+#         print(f"Train {np.mean(train_eval_ex), np.std(train_eval_ex)}")
 
-    def num_users(self) -> int:
-        return len(self.train_users)
+#     def user_ids(self) -> List[int]:
+#         return list(self.train_users.keys())
 
-    def get_user_data(self, user_index: int) -> IFLUserData:
-        if user_index in self.train_users:
-            return self.train_users[user_index]
-        else:
-            raise IndexError(
-                f"Index {user_index} is out of bound for list with len {self.num_users()}"
-            )
+#     def num_users(self) -> int:
+#         return len(self.train_users)
 
-    def train_data(self) -> Iterable[IFLUserData]:
-        for user_data in self.train_users.values():
-            yield user_data
+#     def get_user_data(self, user_index: int) -> IFLUserData:
+#         if user_index in self.train_users:
+#             return self.train_users[user_index]
+#         else:
+#             raise IndexError(
+#                 f"Index {user_index} is out of bound for list with len {self.num_users()}"
+#             )
 
-    def eval_data(self) -> Iterable[Dict[str, torch.Tensor]]:
-        for user_data in self.eval_users.values():
-            for batch in user_data:
-                yield batch
+#     def train_data(self) -> Iterable[IFLUserData]:
+#         for user_data in self.train_users.values():
+#             yield user_data
 
-    def test_data(self) -> Iterable[Dict[str, torch.Tensor]]:
-        for user_data in self.test_users.values():
-            for batch in user_data:
-                yield batch
+#     def eval_data(self) -> Iterable[Dict[str, torch.Tensor]]:
+#         for user_data in self.eval_users.values():
+#             for batch in user_data:
+#                 yield batch
 
-    def _create_fl_users(self, iterator: Iterator) -> Dict[int, IFLUserData]:
-        return {
-            user_index: UserData(user_data)
-            for user_index, user_data in tqdm(
-                enumerate(iterator), desc="Creating FL User", unit="user"
-            )
-        }
+#     def test_data(self) -> Iterable[Dict[str, torch.Tensor]]:
+#         for user_data in self.test_users.values():
+#             for batch in user_data:
+#                 yield batch
+
+#     def _create_fl_users(
+#         self, iterator: Iterator, eval_split
+#     ) -> Dict[int, IFLUserData]:
+#         return {
+#             user_index: UserData(user_data, eval_split)
+#             for user_index, user_data in tqdm(
+#                 enumerate(iterator), desc="Creating FL User", unit="user"
+#             )
+#         }
+
+
+class LEAFDataLoader(IFLDataLoader):
+    SEED = 2137
+    random.seed(SEED)
+
+    def __init__(
+        self,
+        train_dataset: Dataset,
+        eval_dataset: Dataset,
+        test_dataset: Dataset,
+        batch_size: int,
+        drop_last: bool = False,
+    ):
+        self.train_dataset = train_dataset
+        self.eval_dataset = eval_dataset
+        self.test_dataset = test_dataset
+        self.batch_size = batch_size
+        self.drop_last = drop_last
+
+    def fl_train_set(self, **kwargs) -> Iterable[Dict[str, Generator]]:
+        yield from self._batchify(self.train_dataset, self.drop_last)
+
+    def fl_eval_set(self, **kwargs) -> Iterable[Dict[str, Generator]]:
+        yield from self._batchify(self.eval_dataset, drop_last=False)
+
+    def fl_test_set(self, **kwargs) -> Iterable[Dict[str, Generator]]:
+        yield from self._batchify(self.test_dataset, drop_last=False)
+
+    def _batchify(
+        self, dataset: Dataset, drop_last=False
+    ) -> Generator[Dict[str, Generator], None, None]:
+        for one_user_inputs, one_user_labels in dataset:
+            data = list(zip(one_user_inputs, one_user_labels))
+            random.shuffle(data)
+            one_user_inputs, one_user_labels = zip(*data)
+            batch = {
+                "features": batchify(one_user_inputs, self.batch_size, drop_last),
+                "labels": batchify(one_user_labels, self.batch_size, drop_last),
+            }
+            yield batch

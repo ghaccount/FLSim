@@ -78,11 +78,12 @@ class Client:
         self.timeout_simulator = timeout_simulator or NeverTimeOutSimulator(
             **OmegaConf.structured(NeverTimeOutSimulatorConfig())
         )
-        self.store_last_updated_model = store_last_updated_model
+        self.store_last_updated_model = (
+            store_last_updated_model or self.cfg.store_last_updated_model
+        )
         self.name = name or "unnamed_client"
 
         # base lr needs to match LR in optimizer config, overwrite it
-        # pyre-fixme[16]: `Client` has no attribute `cfg`.
         self.cfg.lr_scheduler.base_lr = self.cfg.optimizer.lr
         self.per_example_training_time = (
             self.timeout_simulator.simulate_per_example_training_time()
@@ -91,7 +92,7 @@ class Client:
         self.num_samples = 0
         self.times_selected = 0
         self._tracked = {}
-        self._last_updated_model = None
+        self.last_updated_model = None
         self.logger.setLevel(logging.INFO)
 
     @classmethod
@@ -114,13 +115,6 @@ class Client:
         this user was selected.
         """
         return [self._tracked[s]["delta"] for s in range(self.times_selected)]
-
-    @property
-    def last_updated_model(self):
-        """
-        return the most recent model on the client
-        """
-        return self._last_updated_model
 
     @property
     def optimizers(self) -> List[Any]:
@@ -155,7 +149,7 @@ class Client:
         )
         # 4. Store updated model if being tracked
         if self.store_last_updated_model:
-            self._last_updated_model = deepcopy(updated_model)
+            self.last_updated_model = deepcopy(updated_model)
         # 5. compute delta
         delta = self.compute_delta(
             before=model, after=updated_model, model_to_save=updated_model
@@ -293,31 +287,31 @@ class Client:
 
     def eval(
         self,
-        model: Optional[IFLModel] = None,
-        dataset: Optional[Iterable] = None,
+        model: IFLModel,
+        dataset: Optional[IFLUserData] = None,
         metric_reporter: Optional[IFLMetricsReporter] = None,
+        fine_tune: bool = False,
     ):
         """
         Evaluate the given `model` with the given `dataset`. `model` defaults
         to the current global_model if nothing is provided, and `dataset`
         defaults to client's dataset.
         """
-        # Note here we play a trick, model and dataset provided are not
-        # passed through a channel, in ptactice this needs to be done if
-        # either the model or dataset is not what is currently being held
-        # locally at the client.
+        if fine_tune:
+            model, optim, optim_scheduler = self.prepare_for_training(model)
+            model, _ = self.train(model, optim, optim_scheduler, metric_reporter)
+
         model = model or self.ref_model
-        data = dataset or self.dataset
+        data = self.dataset
         self.cuda_state_manager.before_train_or_eval(model)
         with torch.no_grad():
             if self.seed is not None:
                 torch.manual_seed(self.seed)
 
             model.fl_get_module().eval()
-            for batch in data:
+            for batch in data.eval_data():
                 batch_metrics = model.get_eval_metrics(batch)
                 if metric_reporter is not None:
-                    # TODO MM make sure metric reporter is multi-process safe.
                     metric_reporter.add_batch_metrics(batch_metrics)
         model.fl_get_module().train()
         self.cuda_state_manager.after_train_or_eval(model)
@@ -337,16 +331,6 @@ class Client:
         arrange its inputs, targets and context.
         Return number of examples in the batch.
         """
-        if self.logger.isEnabledFor(logging.DEBUG):
-            self.logger.debug(
-                "L1-norm of Parameters of initial state:",
-                sum(p.abs().sum() for p in self.ref_model.fl_get_module().parameters()),
-            )
-            self.logger.debug(
-                "L1-norm of Parameters before step:",
-                sum(p.abs().sum() for p in model.fl_get_module().parameters()),
-            )
-
         optimizer.zero_grad()
         batch_metrics = model.fl_forward(training_batch)
         loss = batch_metrics.loss
@@ -367,23 +351,6 @@ class Client:
         if metric_reporter is not None:
             metric_reporter.add_batch_metrics(batch_metrics)
 
-        if self.logger.isEnabledFor(logging.DEBUG):
-            self.logger.debug(
-                "L1-norm of Parameters after step:",
-                sum(p.abs().sum() for p in model.fl_get_module().parameters()),
-            )
-            l2_norm_raw = FLModelParamUtils.get_gradient_l2_norm_raw(
-                model.fl_get_module()
-            )
-            l2_norm_normalized = FLModelParamUtils.get_gradient_l2_norm_normalized(
-                model.fl_get_module()
-            )
-            self.logger.debug(
-                f"Train Loss:{loss},"
-                f"GradNorm:{l2_norm_raw},"
-                f"NormalizedGradNorm:{l2_norm_normalized},",
-                f"NumExamples:{num_examples}",
-            )
         return num_examples
 
 
@@ -400,3 +367,4 @@ class ClientConfig:
     shuffle_batch_order: bool = False  # shuffle the ordering of batches
     store_models_and_optimizers: bool = False  # name clear
     track_multiple_selection: bool = False  # track if client appears in 2+ rounds.
+    store_last_updated_model: bool = False

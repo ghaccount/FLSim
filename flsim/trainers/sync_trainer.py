@@ -16,11 +16,13 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import torch
 from flsim.channels.message import Message
 from flsim.clients.base_client import Client
-from flsim.clients.dp_client import DPClientConfig, DPClient
+from flsim.clients.dp_client import DPClientConfig
+from flsim.clients.sarah_client import SarahClientConfig
 from flsim.common.timeline import Timeline
 from flsim.data.data_provider import IFLDataProvider
 from flsim.interfaces.metrics_reporter import IFLMetricsReporter, Metric, TrainingStage
 from flsim.interfaces.model import IFLModel
+from flsim.servers.sarah_server import SarahServerConfig
 from flsim.servers.sync_dp_servers import SyncDPSGDServerConfig
 from flsim.servers.sync_servers import (
     ISyncServer,
@@ -70,6 +72,7 @@ class SyncTrainer(FLTrainer):
             channel=self.channel,
         )
         self.clients = {}
+        self.eval_clients = {}
 
     @classmethod
     def _set_defaults_in_cfg(cls, cfg):
@@ -96,29 +99,28 @@ class SyncTrainer(FLTrainer):
         <code>OmegaConf.structured</code> instead of <code>hydra.instantiate</code>
         to minimize the overhead of hydra object creation.
         """
-        if self.is_sample_level_dp:
-            client = DPClient(
-                # pyre-ignore[16]
-                **OmegaConf.structured(self.cfg.client),
+        if dataset_id not in self.clients:
+            self.clients[dataset_id] = instantiate(
+                self.cfg.client,
                 dataset=datasets[dataset_id],
                 name=f"client_{dataset_id}",
                 timeout_simulator=self._timeout_simulator,
-                store_last_updated_model=self.cfg.report_client_metrics,
                 channel=self.channel,
                 cuda_manager=self._cuda_state_manager,
             )
-        else:
-            client = Client(
-                **OmegaConf.structured(self.cfg.client),
-                dataset=datasets[dataset_id],
-                name=f"client_{dataset_id}",
-                timeout_simulator=self._timeout_simulator,
-                store_last_updated_model=self.cfg.report_client_metrics,
-                channel=self.channel,
-                cuda_manager=self._cuda_state_manager,
-            )
-        self.clients[dataset_id] = client
         return self.clients[dataset_id]
+
+    def create_eval_clients(self, data_provider):
+        for idx, eval_user in enumerate(data_provider.eval_users.values()):
+            self.eval_clients[idx] = instantiate(
+                self.cfg.client,
+                dataset=eval_user,
+                name=f"client_{idx}",
+                timeout_simulator=self._timeout_simulator,
+                channel=self.channel,
+                cuda_manager=self._cuda_state_manager,
+            )
+        print("Number of Eval Clients:", len(self.eval_clients))
 
     def train(
         self,
@@ -196,6 +198,7 @@ class SyncTrainer(FLTrainer):
                 self.cuda_enabled and distributed_world_size > 1,
                 f"from worker {rank}: model norm is {norm} after round {iter}",
             )
+        self.create_eval_clients(data_provider)
 
         # main training loop
         num_int_epochs = math.ceil(self.cfg.epochs)
@@ -266,7 +269,7 @@ class SyncTrainer(FLTrainer):
                     (best_metric, best_model_state,) = self._maybe_run_evaluation(
                         self.global_model(),
                         timeline,
-                        data_provider.eval_data(),
+                        data_provider,
                         metric_reporter,
                         best_metric,
                         best_model_state,
@@ -310,6 +313,7 @@ class SyncTrainer(FLTrainer):
             (global_round_num / num_rounds_in_epoch)
             >= self.cfg.epochs  # pyre-fixme[16]: `SyncTrainer` has no attribute `cfg`.
             or self._timeout_simulator.stop_fl()
+            or (global_round_num >= self.cfg.num_rounds)
         )
 
     def _drop_overselected_users(
@@ -382,9 +386,21 @@ class SyncTrainer(FLTrainer):
         self.logger.info(f"Round initialization took {time() - t} s.")
 
         def update(client):
-            client_delta, weight = client.generate_local_update(
-                self.global_model(), metric_reporter
-            )
+            if is_target(self.cfg.client, SarahClientConfig):
+                assert is_target(
+                    self.cfg.server, SarahServerConfig
+                ), "Sarah Client must be used with Sarah server"
+                client_delta, weight = client.generate_local_update(
+                    model=self.global_model(),
+                    prev_model=self.server.previous_global_model,
+                    round_number=timeline.global_round_num(),
+                    large_cohort_period=self.cfg.server.large_cohort_period,
+                    metric_reporter=metric_reporter,
+                )
+            else:
+                client_delta, weight = client.generate_local_update(
+                    self.global_model(), metric_reporter
+                )
             self.server.receive_update_from_client(Message(client_delta, weight))
 
         t = time()
@@ -493,7 +509,7 @@ class SyncTrainer(FLTrainer):
                 metric_reporter.reset()
                 client.eval(
                     model=model,
-                    dataset=self.data_provider.eval_data(),
+                    dataset=self.data_provider,
                     metric_reporter=metric_reporter,
                 )
                 # pyre-fixme[16]: `IFLMetricsReporter` has no attribute
@@ -630,3 +646,5 @@ class SyncTrainerConfig(FLTrainerConfig):
     # how many times per epoch should we report client metrics
     # numbers greater than 1 help with plotting more precise training curves
     client_metrics_reported_per_epoch: int = 1
+    # number of communication rounds to train
+    num_rounds: float = float("inf")
