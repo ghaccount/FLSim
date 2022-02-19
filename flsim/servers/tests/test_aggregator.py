@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -193,7 +192,7 @@ class TestAggregator:
     )
     def test_distributed_op_aggregation(self, agg_type, dist_op):
         """
-        Test aggregation with only SUM and no BROADCAST then each worker should have
+        Test aggregation with only SUM and no BROADTCAST then each worker should have
         different parameters.
         """
         model = create_model_with_value(0)

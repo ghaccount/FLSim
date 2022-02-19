@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -77,6 +76,7 @@ class IServerOptimizer(abc.ABC):
         raise NotImplementedError
 
 
+# pyre-ignore[11] Annotation
 class FedAvgWithLROptimizer(IServerOptimizer, torch.optim.SGD):
     def __init__(self, *, model: nn.Module, **kwargs) -> None:
         init_self_cfg(
@@ -128,6 +128,7 @@ class FedAvgOptimizer(IServerOptimizer, torch.optim.SGD):
         return torch.optim.SGD.zero_grad(self, set_to_none)
 
 
+# pyre-ignore[11] Annotation
 class FedAdamOptimizer(IServerOptimizer, torch.optim.Adam):
     def __init__(self, *, model: nn.Module, **kwargs) -> None:
         init_self_cfg(

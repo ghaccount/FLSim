@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -10,7 +9,7 @@ from flsim.utils.config_utils import _flatten_dict, fl_json_to_dotlist
 
 
 class TestConfigUtils:
-    def test_flatten_dict(self) -> None:
+    def test_flatten_dict(self):
         assertEqual(_flatten_dict({}), {})
         assertEqual(_flatten_dict({"a": 1}), {"a": 1})
         assertEqual(_flatten_dict({"a": None}), {"a": None})
@@ -92,7 +91,7 @@ class TestConfigUtils:
             },
         )
 
-    def test_json_to_dotlist(self) -> None:
+    def test_json_to_dotlist(self):
         assertEqual(fl_json_to_dotlist({}, append_or_override=False), [])
         assertEqual(fl_json_to_dotlist({"a": 1}, append_or_override=False), ["a=1"])
         assertEqual(
@@ -195,7 +194,7 @@ class TestConfigUtils:
             ],
         )
 
-    def test_json_to_dotlist_append_or_override(self) -> None:
+    def test_json_to_dotlist_append_or_override(self):
 
         assertEqual(fl_json_to_dotlist({}), [])
         assertEqual(fl_json_to_dotlist({"a": 1}), ["++a=1"])

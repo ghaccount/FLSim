@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -44,7 +43,6 @@ def create_sync_trainer(
     timeout_simulator_config: TimeOutSimulatorConfig = NEVER_TIMEOUT_CONFIG,
     local_lr_scheduler: OptimizerSchedulerConfig = CONSTANT_LR_SCHEDULER_CONFIG,
     report_train_metrics: bool = False,
-    report_train_metrics_after_aggregation: bool = False,
     dropout_rate: float = 1.0,
 ):
     # first disable report_train_metrics_after_aggregation. we will call
@@ -62,7 +60,7 @@ def create_sync_trainer(
                 train_metrics_reported_per_epoch=1,
                 eval_epoch_frequency=1,
                 report_train_metrics=report_train_metrics,
-                report_train_metrics_after_aggregation=report_train_metrics_after_aggregation,
+                report_train_metrics_after_aggregation=False,
                 client=ClientConfig(
                     epochs=user_epochs_per_round,
                     optimizer=LocalOptimizerSGDConfig(

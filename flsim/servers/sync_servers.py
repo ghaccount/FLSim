@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -38,7 +37,7 @@ class ISyncServer(abc.ABC):
     """
     Interface for Sync servers, all sync server should
     implement this interface.
-    Responsibilities:
+    Responsiblities:
         Wrapper for aggregator and optimizer.
         Collects client updates and sends to aggregator.
         Changes the global model using aggregator and optimizer.
@@ -88,7 +87,7 @@ class ISyncServer(abc.ABC):
             is high loss. Defaults to None.
 
         Returns:
-            List[int]: A list of client indices
+            List[int]: A list of client indicies
         """
         pass
 

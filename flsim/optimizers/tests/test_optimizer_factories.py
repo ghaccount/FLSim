@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -29,7 +28,7 @@ from omegaconf import OmegaConf
 
 
 @pytest.fixture(scope="class")
-def prepare_optimizer_factory_test(request) -> None:
+def prepare_optimizer_factory_test(request):
     request.cls.model = TwoLayerNet(10, 5, 1)
 
 

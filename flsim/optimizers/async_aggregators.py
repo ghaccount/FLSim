@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
 from __future__ import annotations
 
+import copy
 import logging
 from dataclasses import dataclass
 from enum import Enum
@@ -112,7 +112,7 @@ class AsyncAggregator:
 
         self.orig_lr = self.optimizer.param_groups[0]["lr"]
         self._global_model: IFLModel = global_model
-        self._reconstructed_grad: IFLModel = FLModelParamUtils.clone(self._global_model)
+        self._reconstructed_grad: IFLModel = copy.deepcopy(self._global_model)
         # there is no concept of a round in async, hence round reducer is not tied to a round
         self.reducer = instantiate(
             self.cfg.reducer,

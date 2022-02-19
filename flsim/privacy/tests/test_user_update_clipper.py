@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -18,7 +17,7 @@ from flsim.tests import utils
 
 
 @pytest.fixture(scope="class")
-def prepare_user_update_clipper_test(request) -> None:
+def prepare_user_update_clipper_test(request):
     request.cls.user_update_clipper = UserUpdateClipper()
 
     def _init_user_model(param_value):
@@ -45,12 +44,10 @@ class TestUserUpdateClipper:
         self.user_update_clipper.clip(clipped_model_diff, max_norm)
         return clipped_model_diff
 
-    def test_calc_clip_factor(self) -> None:
+    def test_calc_clip_factor(self):
         """
         Tests that the clip factor for user updates is calculated correctly.
         """
-        # pyre-fixme[16]: `TestUserUpdateClipper` has no attribute
-        #  `user_update_clipper`.
         clip_factor = self.user_update_clipper._calc_clip_factor(
             max_norm=5, per_user_norm=10
         )
@@ -66,7 +63,7 @@ class TestUserUpdateClipper:
         )
         assertAlmostEqual(clip_factor, 1, places=3)
 
-    def test_calc_user_update_norm(self) -> None:
+    def test_calc_user_update_norm(self):
         """
         Tests that the user update l-2 norms are calculated correctly.
         """
@@ -74,8 +71,6 @@ class TestUserUpdateClipper:
         model.fill_all(2.0)
         model_params = model.parameters()
         # norm = sqrt(21*2^2)=sqrt(84)=9.16515138991168
-        # pyre-fixme[16]: `TestUserUpdateClipper` has no attribute
-        #  `user_update_clipper`.
         norm = self.user_update_clipper._calc_norm(model_params)
         assertTrue(torch.allclose(norm, torch.tensor(9.16515138991168), rtol=1e-06))
 
@@ -85,15 +80,13 @@ class TestUserUpdateClipper:
         norm = self.user_update_clipper._calc_norm(model_params)
         assertTrue(torch.allclose(norm, torch.tensor(4.58257569495584), rtol=1e-06))
 
-    def test_clipped_updates_are_smaller(self) -> None:
+    def test_clipped_updates_are_smaller(self):
         """
         Tests that user updates are clipped and their value is smaller than
         the original updates
         """
 
         # assert the parameters of model_diff are all = (7 - 6 = 1)
-        # pyre-fixme[16]: `TestUserUpdateClipper` has no attribute
-        #  `original_model_diff_params`.
         for p in self.original_model_diff_params:
             assertTrue(torch.allclose(p.float(), torch.tensor(1.0)))
 
@@ -106,7 +99,7 @@ class TestUserUpdateClipper:
         ):
             assertTrue(torch.all(original.gt(clipped)))
 
-    def test_clipped_user_updates_non_zero(self) -> None:
+    def test_clipped_user_updates_non_zero(self):
         """
         Tests that user updates are not zero by clipping
         """
@@ -118,16 +111,13 @@ class TestUserUpdateClipper:
             allzeros = torch.zeros_like(clipped)
             assertFalse(torch.allclose(clipped, allzeros))
 
-    def test_clipping_to_high_value_does_not_clip(self) -> None:
+    def test_clipping_to_high_value_does_not_clip(self):
         """
         Tests that when clip value is set too high, user
         updates are not clipped
         """
         clipped_model_diff = self._init_clipped_model_diff(9999)
         mismatched = utils.verify_models_equivalent_after_training(
-            # pyre-fixme[16]: `TestUserUpdateClipper` has no attribute
-            #  `original_model_diff`.
-            self.original_model_diff,
-            clipped_model_diff,
+            self.original_model_diff, clipped_model_diff
         )
         assertEqual(mismatched, "")

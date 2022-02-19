@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -16,7 +15,7 @@ from omegaconf import OmegaConf
 
 
 class TestOptimizerScheduler:
-    def test_armijo_line_search_on_parabola(self) -> None:
+    def test_armijo_line_search_on_parabola(self):
         """
             a toy optimization example:
                 min f(x) = 100 x^2 - 1

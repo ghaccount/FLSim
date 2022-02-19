@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -18,12 +17,12 @@ from hydra.utils import instantiate
 
 
 @pytest.fixture(scope="class")
-def prepare_dataset_data_loader_with_batch(request) -> None:
+def prepare_dataset_data_loader_with_batch(request):
     request.cls.test_csv_path = "test_resources/data.csv"
     request.cls.total_data_count = 15
     request.cls.train_batch_size = 1
-    request.cls.eval_batch_size = 1
-    request.cls.test_batch_size = 1
+    request.cls.eval_batch_size = 3
+    request.cls.test_batch_size = 5
 
 
 class TestDataset(FLCSVDataset):

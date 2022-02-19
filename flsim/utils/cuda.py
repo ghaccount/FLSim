@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -22,7 +21,7 @@ def tensor(data, dtype, cuda_enabled: bool):
     return torch.tensor(data, dtype=dtype, device=device(cuda_enabled))
 
 
-def device(cuda_enabled: bool) -> str:
+def device(cuda_enabled: bool):
     return "cuda:{}".format(torch.cuda.current_device()) if cuda_enabled else "cpu"
 
 

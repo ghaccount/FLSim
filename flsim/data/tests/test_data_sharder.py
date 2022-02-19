@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -186,9 +185,11 @@ class TestDataSharder:
                 local_batch_size,  # eval_batch_size
                 local_batch_size,  # test_batch_size
             )
-            train_set = list(data_loader.fl_train_set(rank=rank, world_size=world_size))
+            train_set = data_loader.fl_train_set(rank=rank, world_size=world_size)
             assertEqual(data_loader.num_total_users, math.ceil(26 / shard_size))
             number_of_users_on_worker = 2 if rank in (0, 1, 2) else 1
+            # pyre-fixme[6]: Expected `Sized` for 1st param but got
+            #  `Iterable[typing.Iterable[typing.Any]]`.
             train_set_size = len(train_set)
             assertEqual(train_set_size, number_of_users_on_worker)
 
@@ -213,5 +214,6 @@ class TestDataSharder:
 
         data_loader.fl_train_set()
         assertEqual(data_loader.num_total_users, math.ceil(26 / shard_size))
-        eval_set = list(data_loader.fl_eval_set())
-        assertEqual(len(eval_set), math.ceil(26 / shard_size))
+        eval_set = data_loader.fl_eval_set()
+        # pyre-fixme[6]
+        assertEqual(len(eval_set), (26 / local_batch_size))

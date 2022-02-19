@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -11,7 +10,7 @@ import abc
 import logging
 import sys
 from dataclasses import dataclass
-from typing import Any, List, Optional, Tuple
+from typing import Any, Iterable, List, Optional, Tuple
 
 import torch
 from flsim.channels.base_channel import FLChannelConfig
@@ -94,11 +93,11 @@ class FLTrainer(abc.ABC):
         pass
 
     def test(
-        self, data_provider: IFLDataProvider, metric_reporter: IFLMetricsReporter
+        self, data_iter: Iterable[Any], metric_reporter: IFLMetricsReporter
     ) -> Any:
         return self._test(
             timeline=Timeline(global_round=1),
-            data_provider=data_provider,
+            data_iter=data_iter,
             model=self.global_model(),
             metric_reporter=metric_reporter,
         )
@@ -110,7 +109,7 @@ class FLTrainer(abc.ABC):
         self,
         model: IFLModel,
         timeline: Timeline,
-        data_provider,
+        eval_iter: Iterable[Any],
         metric_reporter: IFLMetricsReporter,
         best_metric,
         best_model_state,
@@ -122,13 +121,13 @@ class FLTrainer(abc.ABC):
             return best_metric, best_model_state
         eval_metric, eval_metric_better_than_prev = self._evaluate(
             timeline=timeline,
-            global_model=model,
-            data_provider=data_provider,
+            data_iter=eval_iter,
+            model=model,
             metric_reporter=metric_reporter,
         )
 
         # 1) keep the best model so far if metric_reporter.compare_metrics is specified
-        # 2) if self.always_keep_trained_model is set as true, ignore the metrics and
+        # 2) if self.always_keep_trained_model is set as true, ignore the metricsa and
         #    keep the trained model for each epoch
         if self.cfg.always_keep_trained_model or eval_metric_better_than_prev:
             # last_best_epoch = epoch
@@ -201,37 +200,34 @@ class FLTrainer(abc.ABC):
     def _evaluate(
         self,
         timeline: Timeline,
-        data_provider: IFLDataProvider,
-        global_model: IFLModel,
+        data_iter: Iterable[Any],
+        model: IFLModel,
         metric_reporter: IFLMetricsReporter,
     ) -> Tuple[Any, bool]:
-        """
-        Evaluate global model on eval users
-        """
         with torch.no_grad():
-            self._cuda_state_manager.before_train_or_eval(global_model)
-            global_model.fl_get_module().eval()
-            print(f"{timeline}: \t Evaluates global model on all data of eval users")
-            for user in data_provider.eval_users():
-                for batch in user.eval_data():
-                    batch_metrics = global_model.get_eval_metrics(batch)
-                    metric_reporter.add_batch_metrics(batch_metrics)
+            self._cuda_state_manager.before_train_or_eval(model)
+            model.fl_get_module().eval()
+            print(f"Running {timeline} for {TrainingStage.EVAL.name.title()}")
+
+            for _, batch in enumerate(data_iter):
+                batch_metrics = model.get_eval_metrics(batch)
+                metric_reporter.add_batch_metrics(batch_metrics)
 
             metrics, found_best_model = metric_reporter.report_metrics(
-                model=global_model,
+                model=model,
                 reset=True,
                 stage=TrainingStage.EVAL,
                 timeline=timeline,
                 epoch=timeline.global_round_num(),  # for legacy
                 print_to_channels=True,
             )
-            self._cuda_state_manager.after_train_or_eval(global_model)
+            self._cuda_state_manager.after_train_or_eval(model)
             return metrics, found_best_model
 
     def _test(
         self,
         timeline: Timeline,
-        data_provider: IFLDataProvider,
+        data_iter: Iterable[Any],
         model: IFLModel,
         metric_reporter: IFLMetricsReporter,
     ) -> Any:
@@ -240,10 +236,9 @@ class FLTrainer(abc.ABC):
             model.fl_get_module().eval()
             print(f"Running {timeline} for {TrainingStage.TEST.name.title()}")
 
-            for test_user in data_provider.test_users():
-                for batch in test_user.eval_data():
-                    batch_metrics = model.get_eval_metrics(batch)
-                    metric_reporter.add_batch_metrics(batch_metrics)
+            for _, batch in enumerate(data_iter):
+                batch_metrics = model.get_eval_metrics(batch)
+                metric_reporter.add_batch_metrics(batch_metrics)
 
             metrics, _ = metric_reporter.report_metrics(
                 model=model,

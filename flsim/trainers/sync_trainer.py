@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -22,7 +21,6 @@ from flsim.data.data_provider import IFLDataProvider
 from flsim.interfaces.metrics_reporter import IFLMetricsReporter, Metric, TrainingStage
 from flsim.interfaces.model import IFLModel
 from flsim.servers.sync_dp_servers import SyncDPSGDServerConfig
-from flsim.servers.sync_secagg_servers import SyncSecAggServerConfig
 from flsim.servers.sync_servers import (
     ISyncServer,
     SyncServerConfig,
@@ -79,7 +77,7 @@ class SyncTrainer(FLTrainer):
 
     def global_model(self) -> IFLModel:
         """This function makes it explicit that self.global_model() is owned
-        by the server, not by SyncTrainer
+        by the aggregator, not by SyncTrainer
         """
         return self.server.global_model
 
@@ -91,10 +89,6 @@ class SyncTrainer(FLTrainer):
     def is_sample_level_dp(self):
         return is_target(self.cfg.client, DPClientConfig)
 
-    @property
-    def is_secure_aggregation_enabled(self):
-        return is_target(self.cfg.server, SyncSecAggServerConfig)
-
     def create_or_get_client_for_data(self, dataset_id: int, datasets: Any):
         """This function is used to create clients in a round. Thus, it
         is called UPR * num_rounds times per training run. Here, we use
@@ -105,7 +99,7 @@ class SyncTrainer(FLTrainer):
             client = DPClient(
                 # pyre-ignore[16]
                 **OmegaConf.structured(self.cfg.client),
-                dataset=datasets.get_train_user(dataset_id),
+                dataset=datasets[dataset_id],
                 name=f"client_{dataset_id}",
                 timeout_simulator=self._timeout_simulator,
                 store_last_updated_model=self.cfg.report_client_metrics,
@@ -115,7 +109,7 @@ class SyncTrainer(FLTrainer):
         else:
             client = Client(
                 **OmegaConf.structured(self.cfg.client),
-                dataset=datasets.get_train_user(dataset_id),
+                dataset=datasets[dataset_id],
                 name=f"client_{dataset_id}",
                 timeout_simulator=self._timeout_simulator,
                 store_last_updated_model=self.cfg.report_client_metrics,
@@ -142,11 +136,13 @@ class SyncTrainer(FLTrainer):
             3. Calculate metrics based on evaluation results and select best model
 
         Args:
-            data_provider (IFLDataProvider): provide training, evaluation, and test data
-                iterables and get a user's data based on user ID
+            train_iter (List[Iterable[Any]]): list of batch iterators of training data,
+                each batch iterator represents data from a single 'user'
+            eval_iter (Iterable[Any]): batch iterator of evaluation data
+            model (Model): model to be trained
             metric_reporter (IFLMetricsReporter): compute metric based on training
-                output and report results to console, file, etc.
-            num_total_users (int): number of total users for training
+                output and report results to console, file.. etc
+            train_config (PyTextConfig): training config
 
         Returns:
             model, best_metric: the trained model together with the best metric
@@ -164,7 +160,7 @@ class SyncTrainer(FLTrainer):
         # set up synchronization utilities for distributed training
         FLDistributedUtils.setup_distributed_training(
             distributed_world_size, use_cuda=self.cuda_enabled
-        )  # TODO do not call distributed utils here, this is upstream responsibility
+        )  # TODO do not call dsitributed utils here, this is upstream responsibility
         self.logger.info(f" dist world size = {distributed_world_size}")
 
         if rank != 0:
@@ -180,7 +176,7 @@ class SyncTrainer(FLTrainer):
 
         self.data_provider = data_provider
         num_rounds_in_epoch = self.rounds_in_one_epoch(num_total_users, users_per_round)
-        num_users_on_worker = data_provider.num_train_users()
+        num_users_on_worker = data_provider.num_users()
         self.logger.debug(
             f"num_users_on_worker: {num_users_on_worker}, "
             f"users_per_round: {users_per_round}, "
@@ -237,7 +233,6 @@ class SyncTrainer(FLTrainer):
                     timeline=timeline,
                     clients=clients,
                     agg_metric_clients=agg_metric_clients,
-                    users_per_round=users_per_round,
                     metric_reporter=metric_reporter
                     if self.cfg.report_train_metrics
                     else None,
@@ -267,13 +262,13 @@ class SyncTrainer(FLTrainer):
                         )
 
                     t = time()
-                    best_metric, best_model_state = self._maybe_run_evaluation(
-                        model=self.global_model(),
-                        timeline=timeline,
-                        data_provider=data_provider,
-                        metric_reporter=metric_reporter,
-                        best_metric=best_metric,
-                        best_model_state=best_model_state,
+                    (best_metric, best_model_state,) = self._maybe_run_evaluation(
+                        self.global_model(),
+                        timeline,
+                        data_provider.eval_data(),
+                        metric_reporter,
+                        best_metric,
+                        best_model_state,
                     )
                     self.logger.info(f"Evaluation took {time() - t} s.")
 
@@ -373,7 +368,6 @@ class SyncTrainer(FLTrainer):
         timeline: Timeline,
         clients: Iterable[Client],
         agg_metric_clients: Iterable[Client],
-        users_per_round: int,
         metric_reporter: Optional[IFLMetricsReporter],
     ) -> None:
         """Args:
@@ -407,11 +401,10 @@ class SyncTrainer(FLTrainer):
             timeline=timeline,
             metric_reporter=metric_reporter,
         )
-        self._evaluate_global_model_after_aggregation(
+        self._report_post_aggregation_train_metrics(
             clients=agg_metric_clients,
             model=self.global_model(),
             timeline=timeline,
-            users_per_round=users_per_round,
             metric_reporter=metric_reporter,
         )
         self._calc_post_epoch_communication_metrics(
@@ -448,15 +441,18 @@ class SyncTrainer(FLTrainer):
         ]
         return agg_metric_clients
 
-    def _calc_privacy_metrics(
+    def calc_post_aggregation_train_metrics(
         self,
         clients: Iterable[Client],
         model: IFLModel,
+        timeline: Timeline,
         metric_reporter: Optional[IFLMetricsReporter],
     ) -> List[Metric]:
         """
-        Calculates privacy metrics.
+        Calculates post-server aggregation metrics.
         """
+        for client in clients:
+            client.eval(model=model, metric_reporter=metric_reporter)
 
         metrics = []
         if self.is_user_level_dp:
@@ -481,34 +477,6 @@ class SyncTrainer(FLTrainer):
 
         return metrics
 
-    def _calc_overflow_metrics(
-        self,
-        clients: Iterable[Client],
-        model: IFLModel,
-        users_per_round: int,
-        metric_reporter: Optional[IFLMetricsReporter],
-    ) -> List[Metric]:
-        """
-        Calculates overflow metrics.
-        """
-        metrics = []
-        if self.is_secure_aggregation_enabled:
-            for client in clients:
-                client.eval(model=model, metric_reporter=metric_reporter)
-            (
-                convert_overflow_perc,
-                aggregate_overflow_perc,
-            ) = self.server.calc_avg_overflow_percentage(  # pyre-fixme
-                users_per_round, model
-            )
-            overflow_metrics: List[Metric] = Metric.from_args(
-                convert_overflow_percentage=convert_overflow_perc,
-                aggregate_overflow_percentage=aggregate_overflow_perc,
-            )
-            metrics.append(Metric("overflow per round", overflow_metrics))
-
-        return metrics
-
     def calc_post_epoch_client_metrics(
         self,
         client_models: Dict[Client, IFLModel],
@@ -524,6 +492,7 @@ class SyncTrainer(FLTrainer):
                 metric_reporter.reset()
                 client.eval(
                     model=model,
+                    dataset=self.data_provider.eval_data(),
                     metric_reporter=metric_reporter,
                 )
                 # pyre-fixme[16]: `IFLMetricsReporter` has no attribute
@@ -533,14 +502,14 @@ class SyncTrainer(FLTrainer):
 
         return client_metrics
 
-    def _evaluate_global_model_after_aggregation(
+    def _report_post_aggregation_train_metrics(
         self,
         clients: Iterable[Client],
         model: IFLModel,
         timeline: Timeline,
-        users_per_round: int,
-        metric_reporter: Optional[IFLMetricsReporter] = None,
+        metric_reporter: Optional[IFLMetricsReporter],
     ):
+
         if (
             metric_reporter is not None
             # pyre-fixme[16]: `SyncTrainer` has no attribute `cfg`.
@@ -548,21 +517,9 @@ class SyncTrainer(FLTrainer):
             and self.cfg.report_train_metrics_after_aggregation
             and timeline.tick(1.0 / self.cfg.train_metrics_reported_per_epoch)
         ):
-            with torch.no_grad():
-                model.fl_get_module().eval()
-                for eval_user in self.data_provider.eval_users():
-                    for batch in eval_user.eval_data():
-                        batch_metrics = model.get_eval_metrics(batch)
-                        if metric_reporter is not None:
-                            metric_reporter.add_batch_metrics(batch_metrics)
-                model.fl_get_module().train()
-
-            print(f"Reporting {timeline} for aggregation")
-            privacy_metrics = self._calc_privacy_metrics(
-                clients, model, metric_reporter
-            )
-            overflow_metrics = self._calc_overflow_metrics(
-                clients, model, users_per_round, metric_reporter
+            print(f"reporting {timeline} for aggregation")
+            metrics = self.calc_post_aggregation_train_metrics(
+                clients, model, timeline, metric_reporter
             )
 
             metric_reporter.report_metrics(
@@ -572,7 +529,7 @@ class SyncTrainer(FLTrainer):
                 timeline=timeline,
                 epoch=timeline.global_round_num(),  # for legacy
                 print_to_channels=True,
-                extra_metrics=privacy_metrics + overflow_metrics,
+                extra_metrics=metrics,
             )
 
     def _validate_users_per_round(

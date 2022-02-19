@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -31,7 +30,7 @@ class TestAsyncStalenessWeights:
         self,
         staleness_weight_config: AsyncStalenessWeightConfig,
         staleness_weight_class: StalenessWeight,
-    ) -> None:
+    ):
         obj = instantiate(staleness_weight_config)
         assertEqual(obj.__class__, staleness_weight_class)
 
@@ -39,7 +38,7 @@ class TestAsyncStalenessWeights:
         "avg_staleness",
         AsyncStalenessWeightsTestUtils.AVG_TEST_STALENESS,
     )
-    def test_constant_weight_compute(self, avg_staleness) -> None:
+    def test_constant_weight_compute(self, avg_staleness):
         """Test that all constant weight computation works as expected"""
         max_staleness = 10000
         obj = instantiate(ConstantStalenessWeightConfig(avg_staleness=avg_staleness))
@@ -53,7 +52,7 @@ class TestAsyncStalenessWeights:
         "avg_staleness",
         AsyncStalenessWeightsTestUtils.AVG_TEST_STALENESS,
     )
-    def test_threshold_weight_compute(self, avg_staleness) -> None:
+    def test_threshold_weight_compute(self, avg_staleness):
         """Test that threshold weight computation works as expected"""
         max_staleness = 10000
         for _i in range(10):
@@ -83,7 +82,7 @@ class TestAsyncStalenessWeights:
         "avg_staleness",
         AsyncStalenessWeightsTestUtils.AVG_TEST_STALENESS,
     )
-    def test_polynomial_weight_compute(self, avg_staleness) -> None:
+    def test_polynomial_weight_compute(self, avg_staleness):
         """Test that threshold weight computation works as expected"""
         max_staleness = 10000
         for _i in range(10):
@@ -102,7 +101,7 @@ class TestAsyncStalenessWeights:
             )
             assertEqual(obj.weight(staleness), numerator / denom)
 
-    def test_polynomial_weight_zero_exponent(self) -> None:
+    def test_polynomial_weight_zero_exponent(self):
         """For polynomial weight, if exponent is zero, wt=1 regardless of
         staleness or average staleness
         """
@@ -118,15 +117,12 @@ class TestAsyncStalenessWeights:
             )
             assertEqual(obj.weight(staleness), 1.0)
 
-    def test_polynomial_weight_bad_exponent(self) -> None:
+    def test_polynomial_weight_bad_exponent(self):
         """For polynomial weight, exponent must be between 0 and 1, else error"""
         cfg = PolynomialStalenessWeightConfig(avg_staleness=0, exponent=-0.1)
 
         # negative exponent causes error
         with assertRaises(
-            # pyre-fixme[6]: Expected `Type[typing.Any]` for 1st param but got
-            #  `Tuple[typing.Type[AssertionError],
-            #  typing.Type[hydra.errors.HydraException]]`.
             (
                 AssertionError,  # with Hydra 1.1
                 hydra.errors.HydraException,  # with Hydra 1.0
@@ -137,9 +133,6 @@ class TestAsyncStalenessWeights:
 
         # exponent greater than 1.0 causes error
         with assertRaises(
-            # pyre-fixme[6]: Expected `Type[typing.Any]` for 1st param but got
-            #  `Tuple[typing.Type[AssertionError],
-            #  typing.Type[hydra.errors.HydraException]]`.
             (
                 AssertionError,  # with Hydra 1.1
                 hydra.errors.HydraException,  # with Hydra 1.0

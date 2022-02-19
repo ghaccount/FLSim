@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -8,8 +7,7 @@
 import logging
 from enum import IntEnum
 from itertools import chain
-from typing import List, Iterable, Tuple
-from warnings import warn
+from typing import List, Iterable
 
 import torch
 import torch.distributed as dist
@@ -42,16 +40,15 @@ class FLDistributedUtils:
 
     # equivalent to 256 MB of floats, same buffer size as in PyTorch DDP
     MAX_BUFFER_SIZE = 2 ** 28
-    WORLD_SIZE = 1  # number of processes
-    NUM_WORKERS = 1  # number of CPUs or GPUs
-    # run distributed training on CPU, default False
+    WORLD_SIZE = 1
+    # allow distributed training on CPU, default False
     DISTRIBUTED_TRAINING_ON_CPU = False
-    DISTRIBUTED_BACKEND = dist.Backend.NCCL
+    DISTRIBUTED_BACKED = dist.Backend.NCCL
 
     @classmethod
     def distributed_training_on_cpu(cls):
         cls.DISTRIBUTED_TRAINING_ON_CPU = True
-        cls.DISTRIBUTED_BACKEND = dist.Backend.GLOO
+        cls.DISTRIBUTED_BACKED = dist.Backend.GLOO
 
     @classmethod
     def distributed_training_on_cuda(cls):
@@ -61,55 +58,34 @@ class FLDistributedUtils:
         cpu distributed again.
         """
         cls.DISTRIBUTED_TRAINING_ON_CPU = False
-        cls.DISTRIBUTED_BACKEND = (
-            dist.Backend.GLOO
-            if (cls.WORLD_SIZE > cls.NUM_WORKERS or cls.NUM_WORKERS % cls.WORLD_SIZE)
-            else dist.Backend.NCCL
-        )
+        cls.DISTRIBUTED_BACKED = dist.Backend.NCCL
 
     @classmethod
-    def calc_num_processes_and_workers(
-        cls, distributed_world_size: int, cuda: bool
-    ) -> Tuple[int, int]:
-        """
-        Checks resources on the machine and returns
-        the distributed world size and the number of workers.
-
-        For cpu we do not allow more than one processes per cpu.
-        For cuda we do
-        """
-        if cuda:
+    def check_distributed_training_configs(cls, distributed_world_size: int):
+        if cls.DISTRIBUTED_TRAINING_ON_CPU:
+            assert distributed_world_size <= mp.cpu_count(), (
+                f"Only {mp.cpu_count()} GPUs are available, "
+                f"but {distributed_world_size} CPUs were requested."
+            )
+        elif distributed_world_size > 1:
             assert torch.cuda.is_available(), (
                 "distributed_world_size is greater than 1 "
-                "use only if cuda is supported or distributed_training_on_cuda"
+                "use only if cuda is supported or distributed_training_on_cpu"
                 "has been called!"
             )
-            num_gpus = torch.cuda.device_count()
-            if distributed_world_size > num_gpus and distributed_world_size % num_gpus:
-                warn(
-                    f"There are {num_gpus} physical cuda workers (i.e gpus), "
-                    f"you are asking {distributed_world_size} workers, "
-                    "we need equal number of workers per gpu"
-                )
-            return distributed_world_size, num_gpus
-        else:
-            num_cpus = mp.cpu_count()
-            if distributed_world_size > num_cpus:
-                raise Warning(
-                    f"Only {num_cpus} CPUs are available, "
-                    f"but {distributed_world_size} workers were requested."
-                )
-            return min(distributed_world_size, num_cpus), num_cpus
+            assert distributed_world_size <= torch.cuda.device_count(), (
+                f"Only {torch.cuda.device_count()} GPUs are available, "
+                f"but {distributed_world_size} GPUs were requested."
+            )
 
     @classmethod
     def setup_distributed_training(cls, distributed_world_size: int, use_cuda=True):
-        cls.WORLD_SIZE, cls.NUM_WORKERS = cls.calc_num_processes_and_workers(
-            distributed_world_size, use_cuda
-        )
+        cls.WORLD_SIZE = distributed_world_size
         if use_cuda:
             cls.distributed_training_on_cuda()
         else:
             cls.distributed_training_on_cpu()
+        cls.check_distributed_training_configs(distributed_world_size)
 
     @classmethod
     def distributed_operation(
@@ -275,26 +251,13 @@ class FLDistributedUtils:
                 dst = 0
             cls.logger.warning("Operation reduce is not supported on CPU on ")
 
-            if not (
-                cls.DISTRIBUTED_TRAINING_ON_CPU
-                or cls.DISTRIBUTED_BACKEND == dist.Backend.NCCL
-            ):
-                # GLOO on GPU does not support reduce
-                cls.logger.warning("Chaning reduce operation to reduce all.")
-                handle = dist.all_reduce(
-                    buffer,
-                    op=dist.ReduceOp.SUM,
-                    group=cls._get_default_group(),
-                    async_op=True,
-                )
-            else:
-                handle = dist.reduce(
-                    buffer,
-                    dst,
-                    op=dist.ReduceOp.SUM,
-                    group=cls._get_default_group(),
-                    async_op=True,
-                )
+            handle = dist.reduce(
+                buffer,
+                dst,
+                op=dist.ReduceOp.SUM,
+                group=cls._get_default_group(),
+                async_op=True,
+            )
         elif op == OperationType.BROADCAST:
             if src < 0:
                 cls.logger.debug(
@@ -322,7 +285,6 @@ class FLDistributedUtils:
         'buffer' (i.e. the 2nd param) as a well-flattened 1D tensor of the list
         of params and copy all the params back to buffer.
         """
-        # TODO: (jesikmin) T55869097 Check whether the size of buffer is same as
         # the total number of elements of params
         # copy all-reduced grads back into their original place
         offset = 0
@@ -365,11 +327,11 @@ class FLDistributedUtils:
     ):
         cls.setup_distributed_training(world_size, use_cuda)
         if not cls.DISTRIBUTED_TRAINING_ON_CPU:
-            device = torch.device(f"cuda:{rank % cls.NUM_WORKERS}")
+            device = torch.device(f"cuda:{rank}")
             torch.cuda.set_device(device)
         if world_size > 1:
             dist.init_process_group(
-                backend=cls.DISTRIBUTED_BACKEND,
+                backend=cls.DISTRIBUTED_BACKED,
                 init_method=init_method,
                 world_size=world_size,
                 rank=rank,

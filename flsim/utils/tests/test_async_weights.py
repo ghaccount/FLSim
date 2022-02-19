@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -65,7 +64,7 @@ class TestAsyncExampleWeights:
         example_weight_class: ExampleWeight,
         avg_num_examples: int = 1,
         avg_staleness: int = 1,
-    ) -> None:
+    ):
         """Test that all weight computation works as expected"""
         max_num_examples = 10000
         max_staleness = 10000

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -140,7 +139,7 @@ class SyncDPSGDServer(ISyncServer):
         )
 
     def step(self):
-        assert self._privacy_engine is not None, "PrivacyEngine is not initialized"
+        assert self._privacy_engine is not None, "PrivacyEngine is not intialized"
 
         aggregated_model = self._aggregator.aggregate(distributed_op=OperationType.SUM)
 

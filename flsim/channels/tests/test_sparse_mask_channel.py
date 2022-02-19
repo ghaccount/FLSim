@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+from copy import deepcopy
 from typing import OrderedDict
 from typing import Type
 
@@ -28,7 +28,7 @@ from torch.nn.utils import prune
 
 class TestSparseMaskChannel:
     @classmethod
-    def calc_model_sparsity(cls, state_dict: OrderedDict) -> float:
+    def calc_model_sparsity(cls, state_dict: OrderedDict):
         """
         Calculates model sparsity (fraction of zeroed weights in state_dict).
         """
@@ -122,7 +122,7 @@ class TestSparseMaskChannel:
         # create dummy model
         two_fc = utils.TwoFC()
         base_model = utils.SampleNet(two_fc)
-        download_model = FLModelParamUtils.clone(base_model)
+        download_model = deepcopy(base_model)
 
         # test server -> client, models should be strictly identical
         message = Message(download_model)
@@ -163,7 +163,8 @@ class TestSparseMaskChannel:
 
         # create dummy model
         two_fc = utils.TwoFC()
-        upload_model = utils.SampleNet(FLModelParamUtils.clone(two_fc))
+        base_model = utils.SampleNet(two_fc)
+        upload_model = deepcopy(base_model)
 
         # test client -> server, check for sparsity ratio
         message = Message(upload_model)
@@ -201,7 +202,7 @@ class TestSparseMaskChannel:
         # create dummy model
         two_fc = utils.TwoFC()
         base_model = utils.SampleNet(two_fc)
-        upload_model = FLModelParamUtils.clone(base_model)
+        upload_model = deepcopy(base_model)
 
         # test client -> server, check for topk sparse mask
         message = Message(upload_model)
@@ -250,7 +251,8 @@ class TestSparseMaskChannel:
 
         # create dummy model
         two_fc = utils.TwoFC()
-        upload_model = utils.SampleNet(FLModelParamUtils.clone(two_fc))
+        base_model = utils.SampleNet(two_fc)
+        upload_model = deepcopy(base_model)
 
         # client -> server
         message = Message(upload_model)

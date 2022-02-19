@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -138,6 +137,7 @@ class PerUserUniformDurationDistribution(IDurationDistribution):
         pass
 
     def training_duration(self, num_training_examples: int) -> float:
+        # pyre-ignore[20]: default return shape is 1
         return self.generator.sample().item()
 
 
@@ -167,6 +167,7 @@ class PerUserExponentialDurationDistribution(IDurationDistribution):
         pass
 
     def training_duration(self, num_training_examples: int) -> float:
+        # pyre-ignore[20]: default return shape is 1
         return self.generator.sample().item()
 
 

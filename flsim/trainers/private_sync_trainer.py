@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -99,10 +98,13 @@ class PrivateSyncTrainer(SyncTrainer):
         self,
         clients: Iterable[Client],
         model: IFLModel,
+        timeline: Timeline,
         metric_reporter: Optional[IFLMetricsReporter],
     ) -> List[Metric]:
 
-        metrics = super()._calc_privacy_metrics(clients, model, metric_reporter)
+        metrics = super().calc_post_aggregation_train_metrics(
+            clients, model, timeline, metric_reporter
+        )
 
         # calculate sample level dp privacy loss statistics.
         all_client_eps = torch.Tensor(

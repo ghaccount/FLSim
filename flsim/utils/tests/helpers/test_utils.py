@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 from typing import Any, List, Optional
 
 import torch
@@ -13,14 +13,15 @@ from flsim.data.data_provider import IFLDataProvider
 from flsim.interfaces.metrics_reporter import IFLMetricsReporter
 from flsim.interfaces.model import IFLModel
 from flsim.utils.fl.common import FLModelParamUtils
+from opacus import PrivacyEngine
 
 
 class FLTestUtils:
     @classmethod
     def compare_model_linear_comb(cls, model1: nn.Module, model2: nn.Module):
-        temp_modelA = FLModelParamUtils.clone(model1)
-        temp_modelB = FLModelParamUtils.clone(model1)
-        temp_modelC = FLModelParamUtils.clone(model1)
+        temp_modelA = copy.deepcopy(model1)
+        temp_modelB = copy.deepcopy(model1)
+        temp_modelC = copy.deepcopy(model1)
         # model1 + 0*model2 = model1
         FLModelParamUtils.linear_comb_models(model1, 1, model2, 0, temp_modelA)
         assert FLModelParamUtils.get_mismatched_param([model1, temp_modelA]) == ""
@@ -37,7 +38,7 @@ class FLTestUtils:
         # test that resuing one of the input models as model_to_save also works
         # model1 = model1 - model2, followed by model2 = model1 + model2
         # model2 should be the same as original model1
-        temp_modelA = FLModelParamUtils.clone(model1)
+        temp_modelA = copy.deepcopy(model1)
         FLModelParamUtils.linear_comb_models(model1, 1, model2, -1, model1)
         FLModelParamUtils.linear_comb_models(model1, 1, model2, 1, model1)
         assert FLModelParamUtils.get_mismatched_param([model1, temp_modelA], 1e-5) == ""
@@ -45,7 +46,7 @@ class FLTestUtils:
     @classmethod
     def random_grad(cls, model: nn.Module):
         for param in model.parameters():
-            param.grad = torch.rand_like(param)  # pyre-ignore
+            param.grad = torch.rand_like(param)
 
     @classmethod
     def compare_gradient_reconstruction(
@@ -122,8 +123,8 @@ class FLTestUtils:
         """Compute the average of models in orig_models, and verify the average"""
         if len(orig_models) == 0:
             return
-        models = [FLModelParamUtils.clone(orig_model) for orig_model in orig_models]
-        temp_model = FLModelParamUtils.clone(models[0])
+        models = copy.deepcopy(orig_models)
+        temp_model = copy.deepcopy(models[0])
         FLModelParamUtils.average_models(models, temp_model)
         FLModelParamUtils.copy_models(temp_model, models)
         cls._verify_averaged_and_orig_models(orig_models, models)
@@ -149,8 +150,8 @@ class FLTestUtils:
             global_model.fl_cuda()
 
         for _ in range(epochs):
-            for one_user_data in data_provider.train_users():
-                for batch in one_user_data.train_data():
+            for one_user_data in data_provider.train_data():
+                for batch in one_user_data:
                     optimizer.zero_grad()
                     batch_metrics = global_model.fl_forward(batch)
 
@@ -158,7 +159,7 @@ class FLTestUtils:
                         metrics_reporter.add_batch_metrics(batch_metrics)
 
                     batch_metrics.loss.backward()
-                    optimizer.step()  # pyre-ignore
+                    optimizer.step()
         return global_model, metrics_reporter
 
     @classmethod
@@ -185,4 +186,4 @@ class FLTestUtils:
         batch_metrics = model.fl_forward(training_batch)
         loss = batch_metrics.loss
         loss.backward()
-        optimizer.step()  # pyre-ignore
+        optimizer.step()

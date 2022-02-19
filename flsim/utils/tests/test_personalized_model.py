@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -20,7 +19,7 @@ from flsim.utils.tests.helpers.test_models import (
 
 
 @pytest.fixture(scope="class")
-def prepare_fl_model_with_private_modules(request) -> None:
+def prepare_fl_model_with_private_modules(request):
     request.cls.model_with_private_modules = PersonalizedFCModel()
 
 

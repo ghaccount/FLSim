@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -74,11 +73,11 @@ class DPClient(Client):
         pass
 
     def _get_dataset_stats(self, model: IFLModel):
-        batch_size = 0
-        for batch in self.dataset.train_data():
+        for batch in self.dataset:
             batch_size = model.get_num_examples(batch)
             break
-        return batch_size, self.dataset.num_train_examples()
+        # pyre-fixme[61]: `batch_size` may not be initialized here.
+        return batch_size, self.dataset.num_examples()
 
     @property
     def privacy_budget(self) -> PrivacyBudget:

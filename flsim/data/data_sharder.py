@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -57,7 +56,6 @@ class FLDataSharder(abc.ABC):
             name to value.
         """
         shards = defaultdict(list)
-        # pyre-fixme[16]: `Dataset` has no attribute `__iter__`.
         for one_row in data_rows:
             for shard_id in self.shard_for_row(one_row):
                 shards[str(shard_id)].append(one_row)

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 from typing import Any, Dict, List, NamedTuple, Optional, Union, Tuple
 from unittest.mock import MagicMock
 
@@ -53,31 +53,21 @@ class DummyUserData(IFLUserData):
         self._num_batches: int = 0
         self.model = model
         self.from_data_provider = from_data_provider
-        for batch in self.data:
+        for _, batch in self.data:
             self._num_examples += (
                 batch["label"].shape[0] if self.from_data_provider else batch.shape[0]
             )
             self._num_batches += 1
 
-    def num_train_batches(self):
+    def __iter__(self):
+        for _, batch in self.data:
+            yield self.model.fl_create_training_batch(batch=batch)
+
+    def num_batches(self):
         return self._num_batches
 
-    def num_train_examples(self):
+    def num_examples(self):
         return self._num_examples
-
-    def train_data(self):
-        for batch in self.data:
-            yield self.model.fl_create_training_batch(batch=batch)
-
-    def eval_data(self):
-        for batch in self.data:
-            yield self.model.fl_create_training_batch(batch=batch)
-
-    def num_eval_batches(self):
-        return 0
-
-    def num_eval_examples(self):
-        return 0
 
 
 class Quadratic1D(nn.Module):
@@ -314,7 +304,7 @@ def verify_models_equivalent_after_training(
         return ""
 
 
-def model_parameters_equal_to_value(model, value) -> str:
+def model_parameters_equal_to_value(model, value):
     if isinstance(model, IFLModel):
         model = model.fl_get_module()
     for n, p in model.named_parameters():
@@ -426,7 +416,7 @@ class RandomEvalMetricsReporter(IFLMetricsReporter):
             print(
                 f"MetricReporter current_eval:{eval_result}, best_eval: {self._best_eval_result}"
             )
-            self._best_eval_model = FLModelParamUtils.clone(model)
+            self._best_eval_model = copy.deepcopy(model)
             self._best_eval_result = eval_result
             return (eval_result, True)
         else:

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -9,7 +8,7 @@ import logging
 import sys
 
 
-LOGGING_LEVEL: int = logging.WARNING
+LOGGING_LEVEL = logging.WARNING
 # If this flag is true logging will be printed to both stdout and stderr
 PRINT_TO_STDOUT = False
 

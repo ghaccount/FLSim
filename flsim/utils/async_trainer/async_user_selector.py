@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -42,11 +41,8 @@ class RandomAsyncUserSelector(AsyncUserSelector):
         super().__init__(data_provider)
 
     def get_random_user(self) -> AsyncUserSelectorInfo:
-        user_index = np.random.randint(0, self.data_provider.num_train_users())
-        return AsyncUserSelectorInfo(
-            user_data=self.data_provider.get_train_user(user_index),
-            user_index=user_index,
-        )
+        user_index = np.random.randint(0, self.data_provider.num_users())
+        return AsyncUserSelectorInfo(self.data_provider[user_index], user_index)
 
 
 class RoundRobinAsyncUserSelector(AsyncUserSelector):
@@ -63,11 +59,8 @@ class RoundRobinAsyncUserSelector(AsyncUserSelector):
         user_index = self.current_user_index
         self.current_user_index = (
             self.current_user_index + 1
-        ) % self.data_provider.num_train_users()
-        return AsyncUserSelectorInfo(
-            user_data=self.data_provider.get_train_user(user_index),
-            user_index=user_index,
-        )
+        ) % self.data_provider.num_users()
+        return AsyncUserSelectorInfo(self.data_provider[user_index], user_index)
 
 
 class AsyncUserSelectorType(Enum):

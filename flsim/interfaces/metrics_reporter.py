@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -113,8 +112,6 @@ class TrainingStage(Enum):
     TEST = auto()
     EVAL = auto()
     PER_CLIENT_EVAL = auto()
-    PERSONALIZED_EVAL = auto()  # personalized eval on eval users
-    PERSONALIZED_TEST = auto()  # personalized eval on test users
 
 
 class IFLMetricsReporter(abc.ABC):

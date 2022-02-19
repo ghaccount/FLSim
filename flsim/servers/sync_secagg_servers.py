@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -8,7 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional
 
 from flsim.active_user_selectors.simple_user_selector import (
     ActiveUserSelectorConfig,
@@ -118,9 +117,6 @@ class SyncSecAggServer(ISyncServer):
         self._aggregator.add_update(
             delta=message.model.fl_get_module(), weight=message.weight
         )
-        self._secure_aggregator.update_aggr_overflow_and_model(
-            model=self._aggregator._buffer_module
-        )
 
     def step(self):
         aggregated_model = self._aggregator.aggregate()
@@ -132,15 +128,6 @@ class SyncSecAggServer(ISyncServer):
             reference_gradient=aggregated_model,
         )
         self._optimizer.step()
-
-    def calc_avg_overflow_percentage(
-        self,
-        num_users: int,
-        model: IFLModel,
-    ) -> Tuple[float, float]:
-        return self._secure_aggregator.calc_avg_overflow_percentage(
-            num_users, model.fl_get_module()
-        )
 
 
 @dataclass

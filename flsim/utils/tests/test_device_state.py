@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -14,7 +13,7 @@ from flsim.utils.async_trainer.device_state import DeviceState, TrainingSchedule
 
 
 class TestDeviceStateUtil:
-    def test_next_event_time_update(self) -> None:
+    def test_next_event_time_update(self):
         """Check that next_event_time in DeviceState is updated correctly depending
         on its state
         """
@@ -28,7 +27,7 @@ class TestDeviceStateUtil:
         device_state.training_ended()
         assertEqual(device_state.next_event_time(), training_schedule.end_time)
 
-    def test_device_next_event_time_comparison(self) -> None:
+    def test_device_next_event_time_comparison(self):
         """Check whether comparison operator for DeviceState acts as expected"""
         # create two devices, 1 & 2
         # device1 has current, training_start and training_end times
@@ -58,7 +57,7 @@ class TestDeviceStateUtil:
         device_state_2.training_ended()
         assertLess(device_state_1, device_state_2)
 
-    def test_device_next_event_time_comparison_equality(self) -> None:
+    def test_device_next_event_time_comparison_equality(self):
         """Check whether comparison operator for DeviceState acts as expected
         when next_event_time is equal
         """

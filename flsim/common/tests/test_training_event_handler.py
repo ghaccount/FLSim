@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
@@ -21,7 +20,7 @@ from omegaconf import OmegaConf
 
 
 @pytest.fixture(scope="class")
-def prepare_job_scheduler_util_test(request) -> None:
+def prepare_job_scheduler_util_test(request):
     request.cls.shared_client_config = ClientConfig(
         epochs=1,
         max_clip_norm_normalized=0,
@@ -34,7 +33,7 @@ def prepare_job_scheduler_util_test(request) -> None:
 @pytest.mark.usefixtures("prepare_job_scheduler_util_test")
 class TestJobSchedulerUtil:
     def _build_data_provider(
-        self, num_examples, examples_per_user: int, user_batch_size: int, global_model
+        self, num_examples, examples_per_user, user_batch_size, global_model
     ) -> FLDataProviderFromList:
         dummy_dataset = DummyAlphabetDataset(num_examples)
         data_provider, _ = DummyAlphabetDataset.create_data_provider_and_loader(
